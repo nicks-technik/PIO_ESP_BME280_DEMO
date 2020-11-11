@@ -1,17 +1,3 @@
-/***************************************************************************
-  BME280 Multi Output Thingy
-  Reads an BME280 using ESP8266 and provides the results via Serial/USB,
-    an internal HTTP-Server, MQTT (with TLS) and HTTP-GET to a Volkszähler
-
-  This script requires the Adafruit BME280-Library. This library is
-  written by Limor Fried & Kevin Townsend for Adafruit Industries.
-
-  This script requires the PubSubClient-Library. This library is
-  written by Nicholas O'Leary
-
-  This script is written by Florian Knodt - www.adlerweb.info
- ***************************************************************************/
-
 // #define DEBUG_SSL
 // #define DEBUGV
 
@@ -25,43 +11,8 @@
 #include <ESP8266mDNS.h>
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
-#include <PubSubClient.h>
 
 #include "secure.h"
-
-/* 
-extern "C"
-{
-#include "user_interface.h" //os_timer
-}
-*/
-
-// WiFi Configuration
-// const char* _WLAN_SSID  = "MeinWiFi";
-// const char* _WLAN_PASS = "geheim";
-
-// #define USE_MQTT
-// MQTT Configuration
-// const char* _AIO_SERVER = "meinmqtt";
-// const unsigned int _AIO_SERVERPORT = 8883;
-// const char* _AIO_USERNAME =   "sonoffbasic1";
-// const char* _AIO_KEY =   "auchgeheim";
-// const char* _MQTT_ROOT = "/esp/bme280";
-
-// echo | openssl s_client -connect localhost:1883 |& openssl x509 -fingerprint -noout
-const char *_MQTT_FINGERPRINT = "aa bb cc dd ee ff 00 11 22 33 44 55 66 77 88 99 aa bb cc dd";
-
-// #define USE_VOLKSZAEHLER
-const char *vz_url = "http://192.168.1.1/middleware.php/data/";
-const char *vz_addcmd = ".json?operation=add&value=";
-
-//For UUIDs: Use "" to skip this measurement
-const char *vz_uuid_temp = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeee1";   //Temperature (°C)
-const char *vz_uuid_dew = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeee2";    //Dew point (°C)
-const char *vz_uuid_hum = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeee3";    //Absolute humidity (g/m3)
-const char *vz_uuid_hum_r = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeee4";  //Relative humidity (%)
-const char *vz_uuid_pres = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeee5";   //Absolute atmospheric pressure
-const char *vz_uuid_pres_r = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeee6"; //Relative atmospheric pressure (hPa @ sea level)
 
 //periodic status reports
 const unsigned int stats_interval = 60; // Update statistics and measure every 60 seconds
@@ -71,105 +22,12 @@ const unsigned int stats_interval = 60; // Update statistics and measure every 6
 Adafruit_BME280 bme; // I2C
 ESP8266WebServer server(80);
 
-#define CONFIG_MQTT_TOPIC_GET "/get"
-#define CONFIG_MQTT_TOPIC_GET_TEMP "/temperature"
-#define CONFIG_MQTT_TOPIC_GET_DEW "/dewpoint"
-#define CONFIG_MQTT_TOPIC_GET_HUM "/humidity_abs"
-#define CONFIG_MQTT_TOPIC_GET_HUMR "/humidity"
-#define CONFIG_MQTT_TOPIC_GET_PRES "/pressure"
-#define CONFIG_MQTT_TOPIC_GET_PRESR "/pressure_rel"
-#define CONFIG_MQTT_TOPIC_SET "/set"
-#define CONFIG_MQTT_TOPIC_SET_RESET "/reset"
-#define CONFIG_MQTT_TOPIC_SET_UPDATE "/update"
-#define CONFIG_MQTT_TOPIC_SET_PING "/ping"
-#define CONFIG_MQTT_TOPIC_SET_PONG "/pong"
-#define CONFIG_MQTT_TOPIC_STATUS "/status"
-#define CONFIG_MQTT_TOPIC_STATUS_ONLINE "/online"
-#define CONFIG_MQTT_TOPIC_STATUS_HARDWARE "/hardware"
-#define CONFIG_MQTT_TOPIC_STATUS_VERSION "/version"
-#define CONFIG_MQTT_TOPIC_STATUS_INTERVAL "/statsinterval"
-#define CONFIG_MQTT_TOPIC_STATUS_IP "/ip"
-#define CONFIG_MQTT_TOPIC_STATUS_MAC "/mac"
-#define CONFIG_MQTT_TOPIC_STATUS_UPTIME "/uptime"
-#define CONFIG_MQTT_TOPIC_STATUS_SIGNAL "/rssi"
-
-#define MQTT_PRJ_HARDWARE "esp8266tls-bme280"
-#define MQTT_PRJ_VERSION "0.0.1"
-
 const float cToKOffset = 273.15;
 float absoluteHumidity(float temperature, float humidity);
 float saturationVaporPressure(float temperature);
 float dewPoint(float temperature, float humidity);
 
 #ifdef USE_MQTT
-class PubSubClientWrapper : public PubSubClient
-{
-private:
-public:
-  PubSubClientWrapper(Client &espc);
-  bool publish(StringSumHelper topic, String str);
-  bool publish(StringSumHelper topic, unsigned int num);
-  bool publish(const char *topic, String str);
-  bool publish(const char *topic, unsigned int num);
-
-  bool publish(StringSumHelper topic, String str, bool retain);
-  bool publish(StringSumHelper topic, unsigned int num, bool retain);
-  bool publish(const char *topic, String str, bool retain);
-  bool publish(const char *topic, unsigned int num, bool retain);
-};
-
-PubSubClientWrapper::PubSubClientWrapper(Client &espc) : PubSubClient(espc)
-{
-}
-
-bool PubSubClientWrapper::publish(StringSumHelper topic, String str)
-{
-  return publish(topic.c_str(), str);
-}
-
-bool PubSubClientWrapper::publish(StringSumHelper topic, unsigned int num)
-{
-  return publish(topic.c_str(), num);
-}
-
-bool PubSubClientWrapper::publish(const char *topic, String str)
-{
-  return publish(topic, str, false);
-}
-
-bool PubSubClientWrapper::publish(const char *topic, unsigned int num)
-{
-  return publish(topic, num, false);
-}
-
-bool PubSubClientWrapper::publish(StringSumHelper topic, String str, bool retain)
-{
-  return publish(topic.c_str(), str, retain);
-}
-
-bool PubSubClientWrapper::publish(StringSumHelper topic, unsigned int num, bool retain)
-{
-  return publish(topic.c_str(), num, retain);
-}
-
-bool PubSubClientWrapper::publish(const char *topic, String str, bool retain)
-{
-  char buf[128];
-
-  if (str.length() >= 128)
-    return false;
-
-  str.toCharArray(buf, 128);
-  return PubSubClient::publish(topic, buf, retain);
-}
-
-bool PubSubClientWrapper::publish(const char *topic, unsigned int num, bool retain)
-{
-  char buf[6];
-
-  dtostrf(num, 0, 0, buf);
-  return PubSubClient::publish(topic, buf, retain);
-}
 #endif
 
 os_timer_t Timer1;
@@ -178,33 +36,10 @@ bool sendStats = true;
 // WiFiFlientSecure for SSL/TLS support
 // WiFiClientSecure client;
 WiFiClientSecure espClient;
-#ifdef USE_MQTT
-PubSubClientWrapper client(espClient);
-#endif
 
 void timerCallback(void *arg)
 {
   sendStats = true;
-}
-
-uint8_t rssiToPercentage(int32_t rssi)
-{
-  //@author Marvin Roger - https://github.com/marvinroger/homie-esp8266/blob/ad876b2cd0aaddc7bc30f1c76bfc22cd815730d9/src/Homie/Utils/Helpers.cpp#L12
-  uint8_t quality;
-  if (rssi <= -100)
-  {
-    quality = 0;
-  }
-  else if (rssi >= -50)
-  {
-    quality = 100;
-  }
-  else
-  {
-    quality = 2 * (rssi + 100);
-  }
-
-  return quality;
 }
 
 void ipToString(const IPAddress &ip, char *str)
@@ -213,72 +48,10 @@ void ipToString(const IPAddress &ip, char *str)
   snprintf(str, 16, "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
 }
 
-#ifdef USE_VOLKSZAEHLER
-bool sendVz(const char *uuid, float value)
-{
-
-  if (strlen(uuid) == 0)
-    return true;
-
-  HTTPClient http;
-  bool ret = false;
-
-  String url = vz_url;
-  url += uuid;
-  url += vz_addcmd;
-  url += (String)value;
-
-  Serial.print(F("[vz] HTTP-Request: "));
-  Serial.print(url);
-  Serial.print(F(" -> "));
-  http.begin(url);
-  int httpCode = http.GET();
-
-  if (httpCode > 0)
-  {
-    if (httpCode == HTTP_CODE_OK)
-    {
-      Serial.println(F("OK"));
-      ret = true;
-    }
-    else
-    {
-      Serial.print(F("ERR: "));
-      Serial.println(httpCode);
-    }
-  }
-  else
-  {
-    Serial.print(F("ERR: "));
-    Serial.println('0');
-  }
-
-  http.end();
-  return ret;
-}
-#endif
-
-void sendStatsBoot(void)
-{
-#ifdef USE_MQTT
-  client.publish(((String)_MQTT_ROOT + CONFIG_MQTT_TOPIC_STATUS_HARDWARE), MQTT_PRJ_HARDWARE, true);
-  client.publish(((String)_MQTT_ROOT + CONFIG_MQTT_TOPIC_STATUS_VERSION), MQTT_PRJ_VERSION, true);
-  char buf[5];
-  sprintf(buf, "%d", stats_interval);
-  client.publish(((String)_MQTT_ROOT + CONFIG_MQTT_TOPIC_STATUS_INTERVAL), buf, true);
-  client.publish(((String)_MQTT_ROOT + CONFIG_MQTT_TOPIC_STATUS_MAC), WiFi.macAddress(), true);
-#endif
-}
-
 void sendStatsInterval(void)
 {
   char buf[16]; //v4 only atm
   ipToString(WiFi.localIP(), buf);
-#ifdef USE_MQTT
-  client.publish(((String)_MQTT_ROOT + CONFIG_MQTT_TOPIC_STATUS_IP), buf);
-  client.publish(((String)_MQTT_ROOT + CONFIG_MQTT_TOPIC_STATUS_UPTIME), (uint32_t)(millis() / 1000));
-  client.publish(((String)_MQTT_ROOT + CONFIG_MQTT_TOPIC_STATUS_SIGNAL), rssiToPercentage(WiFi.RSSI()));
-#endif
 
   float temperature = bme.readTemperature();
   float humidity_r = bme.readHumidity();
@@ -304,88 +77,27 @@ void sendStatsInterval(void)
 
   yield();
 
-#ifdef USE_MQTT
-  client.publish(((String)_MQTT_ROOT + CONFIG_MQTT_TOPIC_GET + CONFIG_MQTT_TOPIC_GET_TEMP), (String)temperature);
-  client.publish(((String)_MQTT_ROOT + CONFIG_MQTT_TOPIC_GET + CONFIG_MQTT_TOPIC_GET_DEW), (String)dew);
-  client.publish(((String)_MQTT_ROOT + CONFIG_MQTT_TOPIC_GET + CONFIG_MQTT_TOPIC_GET_HUM), (String)humidity);
-  client.publish(((String)_MQTT_ROOT + CONFIG_MQTT_TOPIC_GET + CONFIG_MQTT_TOPIC_GET_HUMR), (String)humidity_r);
-  client.publish(((String)_MQTT_ROOT + CONFIG_MQTT_TOPIC_GET + CONFIG_MQTT_TOPIC_GET_PRES), (String)pressure);
-  client.publish(((String)_MQTT_ROOT + CONFIG_MQTT_TOPIC_GET + CONFIG_MQTT_TOPIC_GET_PRESR), (String)pressure_r);
-#endif
-
-#ifdef USE_VOLKSZAEHLER
-  sendVz(vz_uuid_temp, temperature);
-  sendVz(vz_uuid_dew, dew);
-  sendVz(vz_uuid_hum, humidity);
-  sendVz(vz_uuid_hum_r, humidity_r);
-  sendVz(vz_uuid_pres, pressure);
-  sendVz(vz_uuid_pres_r, pressure_r);
-#endif
 }
 
-#ifdef USE_MQTT
-void verifyFingerprint()
+uint8_t rssiToPercentage(int32_t rssi)
 {
-  if (client.connected() || espClient.connected())
-    return; //Already connected
-
-  Serial.print(F("Checking TLS @ "));
-  Serial.print(_AIO_SERVER);
-  Serial.print(F("..."));
-  // check the fingerprint of io.adafruit.com's SSL cert
-  // needed, if not error connecting to AIO Server
-  // client.setFingerprint(_MQTT_FINGERPRINT);
-  Serial.setDebugOutput(true);
-
-
-
-  if (!espClient.connect(_AIO_SERVER, _AIO_SERVERPORT))
+  //@author Marvin Roger - https://github.com/marvinroger/homie-esp8266/blob/ad876b2cd0aaddc7bc30f1c76bfc22cd815730d9/src/Homie/Utils/Helpers.cpp#L12
+  uint8_t quality;
+  if (rssi <= -100)
   {
-    Serial.println(F("Connection failed. Rebooting."));
-    Serial.flush();
-    ESP.restart();
+    quality = 0;
   }
-  if (espClient.verify(_MQTT_FINGERPRINT, _AIO_SERVER))
+  else if (rssi >= -50)
   {
-    Serial.print(F("Connection secure -> ."));
+    quality = 100;
   }
   else
   {
-    Serial.println(F("Connection insecure! Rebooting."));
-    Serial.flush();
-    ESP.restart();
+    quality = 2 * (rssi + 100);
   }
 
-  espClient.stop();
-
-  delay(100);
+  return quality;
 }
-
-void reconnect()
-{
-  // Loop until we're reconnected
-  while (!client.connected())
-  {
-    Serial.print(F("Attempting MQTT connection..."));
-    verifyFingerprint();
-    // Attempt to connect
-    if (client.connect(WiFi.macAddress().c_str(), _AIO_USERNAME, _AIO_KEY, ((String)_MQTT_ROOT + CONFIG_MQTT_TOPIC_STATUS + CONFIG_MQTT_TOPIC_STATUS_ONLINE).c_str(), 0, 1, "0"))
-    {
-      Serial.println(F("connected"));
-      client.subscribe(((String)_MQTT_ROOT + CONFIG_MQTT_TOPIC_SET + "/#").c_str());
-      client.publish((String)_MQTT_ROOT + CONFIG_MQTT_TOPIC_STATUS + CONFIG_MQTT_TOPIC_STATUS_ONLINE, "1");
-    }
-    else
-    {
-      Serial.print(F("failed, rc="));
-      Serial.print(client.state());
-      Serial.println(F(" try again in 5 seconds"));
-      // Wait 5 seconds before retrying
-      delay(5000);
-    }
-  }
-}
-#endif
 
 void setup_wifi()
 {
@@ -408,64 +120,14 @@ void setup_wifi()
   Serial.println(F("WiFi connected"));
   Serial.println(F("IP address: "));
   Serial.println(WiFi.localIP());
+
+  long rssi = WiFi.RSSI();
+  Serial.print("RSSI: ");
+  Serial.print(rssi);
+  Serial.print(" %: ");
+  Serial.println(rssiToPercentage(rssi));
+
 }
-
-#ifdef USE_MQTT
-void callback(char *topic, byte *payload, unsigned int length)
-{
-  Serial.print(F("Message arrived ["));
-  Serial.print(topic);
-  Serial.print(F("] "));
-
-  char message[length + 1];
-  for (unsigned int i = 0; i < length; i++)
-  {
-    message[i] = (char)payload[i];
-  }
-  message[length] = '\0';
-  Serial.println(message);
-
-  String topicStr = topic;
-  String check = ((String)_MQTT_ROOT + CONFIG_MQTT_TOPIC_SET);
-
-  if (topicStr.startsWith((String)check + CONFIG_MQTT_TOPIC_SET_RESET))
-  {
-    Serial.println(F("MQTT RESET!"));
-    Serial.flush();
-    ESP.restart();
-  }
-
-  if (topicStr.startsWith((String)check + CONFIG_MQTT_TOPIC_SET_PING))
-  {
-    Serial.println(F("PING"));
-    client.publish(((String)_MQTT_ROOT + CONFIG_MQTT_TOPIC_GET + CONFIG_MQTT_TOPIC_SET_PONG), message, false);
-    return;
-  }
-
-  if (topicStr.startsWith((String)check + CONFIG_MQTT_TOPIC_SET_UPDATE))
-  {
-    Serial.println(F("OTA REQUESTED!"));
-    Serial.flush();
-    ArduinoOTA.begin();
-
-    unsigned long timeout = millis() + (120 * 1000); // Max 2 minutes
-    os_timer_disarm(&Timer1);
-
-    while (true)
-    {
-      yield();
-      ArduinoOTA.handle();
-      if (millis() > timeout)
-        break;
-    }
-
-    os_timer_arm(&Timer1, stats_interval * 1000, true);
-    return;
-  }
-
-  return;
-}
-#endif
 
 void handleRoot()
 {
@@ -491,7 +153,7 @@ void handleRoot()
 
 void handleOTA()
 {
-  server.send(200, "text/plain", "OTA START");
+  server.send(200, "text/plain", "OTA START (Ready for maximum 2 minutes)");
   ArduinoOTA.begin();
 
   unsigned long timeout = millis() + (120 * 1000); // Max 2 minutes
@@ -506,6 +168,7 @@ void handleOTA()
   }
 
   os_timer_arm(&Timer1, stats_interval * 1000, true);
+  server.send(200, "text/plain", "OTA session closed");
   return;
 }
 
@@ -554,55 +217,9 @@ void setup()
   Serial.println(F("HTTP-SRV started"));
 
   setup_wifi();
-#ifdef USE_MQTT
-  client.setServer(_AIO_SERVER, _AIO_SERVERPORT);
-  client.setCallback(callback);
-#endif
-
-#ifdef DEBUG_ON
-  Serial.println("Before OTA");
-#endif
-
-  ArduinoOTA.setHostname(((String)WiFi.macAddress()).c_str());
-  ArduinoOTA.onStart([]() {
-    String type;
-    if (ArduinoOTA.getCommand() == U_FLASH)
-      type = "sketch";
-    else // U_SPIFFS
-      type = "filesystem";
-
-    Serial.println("Start updating " + type);
-  });
-  ArduinoOTA.onEnd([]() {
-    Serial.println(F("\nEnd"));
-  });
-  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
-  });
-  ArduinoOTA.onError([](ota_error_t error) {
-    Serial.printf("Error[%u]: ", error);
-    if (error == OTA_AUTH_ERROR)
-      Serial.println(F("Auth Failed"));
-    else if (error == OTA_BEGIN_ERROR)
-      Serial.println(F("Begin Failed"));
-    else if (error == OTA_CONNECT_ERROR)
-      Serial.println(F("Connect Failed"));
-    else if (error == OTA_RECEIVE_ERROR)
-      Serial.println(F("Receive Failed"));
-    else if (error == OTA_END_ERROR)
-      Serial.println(F("End Failed"));
-  });
-
-#ifdef USE_MQTT
-  if (!client.connected())
-  {
-    reconnect();
-  }
-#endif
 
   // Send boot info
   Serial.println(F("Announcing boot..."));
-  sendStatsBoot();
 
   os_timer_setfn(&Timer1, timerCallback, (void *)0);
   os_timer_arm(&Timer1, stats_interval * 1000, true);
@@ -610,13 +227,6 @@ void setup()
 
 void loop()
 {
-#ifdef USE_MQTT
-  if (!client.connected())
-  {
-    reconnect();
-  }
-  client.loop();
-#endif
 
   server.handleClient();
 
@@ -716,3 +326,5 @@ float dewPoint(float temperature, float humidity)
 
   return -113; //Solver did not get a close result
 }
+
+
