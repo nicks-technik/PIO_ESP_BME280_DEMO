@@ -22,6 +22,7 @@ const unsigned int stats_interval = 60; // Update statistics and measure every 6
 Adafruit_BME280 bme; // I2C
 ESP8266WebServer server(80);
 
+// Temperature functions
 const float cToKOffset = 273.15;
 float absoluteHumidity(float temperature, float humidity);
 float saturationVaporPressure(float temperature);
@@ -38,17 +39,20 @@ bool sendStats = true;
 // WiFiClientSecure client;
 WiFiClientSecure espClient;
 
+// Callback function for the timer
 void timerCallback(void *arg)
 {
   sendStats = true;
 }
 
+// Convert an IP address to a String
 void ipToString(const IPAddress &ip, char *str)
 {
   //@author Marvin Roger - https://github.com/marvinroger/homie-esp8266/blob/ad876b2cd0aaddc7bc30f1c76bfc22cd815730d9/src/Homie/Utils/Helpers.cpp#L82
   snprintf(str, 16, "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
 }
 
+// Sending and printing the latest values
 void sendStatsInterval(void)
 {
   char buf[16]; //v4 only atm
@@ -80,6 +84,7 @@ void sendStatsInterval(void)
 
 }
 
+// Convert the WIFI rssi to a percentage
 uint8_t rssiToPercentage(int32_t rssi)
 {
   //@author Marvin Roger - https://github.com/marvinroger/homie-esp8266/blob/ad876b2cd0aaddc7bc30f1c76bfc22cd815730d9/src/Homie/Utils/Helpers.cpp#L12
@@ -100,6 +105,7 @@ uint8_t rssiToPercentage(int32_t rssi)
   return quality;
 }
 
+// Setup of the Wifi
 void setup_wifi()
 {
   delay(10);
@@ -130,6 +136,7 @@ void setup_wifi()
 
 }
 
+// Webserver is showing the latest information
 void handleRoot()
 {
   float temperature = bme.readTemperature();
@@ -152,6 +159,7 @@ void handleRoot()
   server.send(200, "text/plain", out);
 }
 
+// Webserver is activating the OTA handling for 2 Minutes
 void handleOTA()
 {
   server.send(200, "text/plain", "OTA START (Ready for maximum 2 minutes)");
@@ -173,6 +181,7 @@ void handleOTA()
   return;
 }
 
+// Webserver is showing a message, that there is no information on the site
 void handleNotFound()
 {
   String message = "File Not Found\n\n";
