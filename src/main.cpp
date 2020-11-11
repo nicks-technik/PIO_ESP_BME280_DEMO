@@ -27,6 +27,7 @@ float absoluteHumidity(float temperature, float humidity);
 float saturationVaporPressure(float temperature);
 float dewPoint(float temperature, float humidity);
 
+#define USE_MQTT
 #ifdef USE_MQTT
 #endif
 
@@ -326,5 +327,6 @@ float dewPoint(float temperature, float humidity)
 
   return -113; //Solver did not get a close result
 }
+
 
 
